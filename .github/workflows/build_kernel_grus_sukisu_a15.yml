@@ -1,0 +1,73 @@
+name: Build Kernel Xiaomi Mi 9 SE (grus_sukisu_a15)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # 这里加载的变量可以在后续步骤中通过 source 加载 .env 文件来获取
+      PROFILE_FILE: Profiles/grus_sukisu_a15.env
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Load Device Profile
+        id: load_profile
+        run: |
+          echo "加载设备配置文件：${PROFILE_FILE}"
+          cat ${PROFILE_FILE}
+          # 将配置文件中的所有变量导出到 GitHub Actions 环境变量中
+          set -a
+          source ${PROFILE_FILE}
+          set +a
+          # 输出主要变量用于日志调试
+          echo "KERNEL_NAME=${KERNEL_NAME}"
+          echo "DEFCONFIG=${DEFCONFIG}"
+          echo "KERNEL_SOURCE=${KERNEL_SOURCE}"
+      
+      - name: Clone Kernel Source
+        run: |
+          git clone --depth=1 "$KERNEL_SOURCE" kernel
+        shell: bash
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang make gcc bc bison flex libssl-dev lzop
+        shell: bash
+
+      - name: Build Kernel
+        run: |
+          cd kernel
+          # 导出环境变量供 make 使用，这里假设使用内核源码自带的 Makefile
+          echo "使用 DEFCONFIG: ${DEFCONFIG}"
+          make O=../out ${DEFCONFIG}
+          make O=../out -j$(nproc)
+        shell: bash
+
+      - name: Package Kernel with AnyKernel3
+        run: |
+          cd ..
+          # 假设你的 AnyKernel3 打包脚本位于 AnyKernel3/ 目录下
+          # 并且打包脚本根据 out/ 目录内容生成 zip 包
+          if [ "$PACK_TYPE" = "AnyKernel3" ]; then
+              echo "开始使用 AnyKernel3 打包..."
+              # 此处你需要根据实际情况调用打包脚本，我这里给出一个示例：
+              cd AnyKernel3
+              ./anykernel.sh ../out
+              cd ..
+          else
+              echo "未启用 AnyKernel3 打包，直接复制输出文件"
+              cp out/Image.gz-dtb .
+          fi
+          # 假设最终生成的 zip 包名称为 ${KERNEL_NAME}.zip
+          ls -lh ${KERNEL_NAME}.zip || echo "请检查打包输出"
+        shell: bash
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: Kernel-${{ env.KERNEL_NAME }}
+          path: ${{ env.KERNEL_NAME }}.zip
